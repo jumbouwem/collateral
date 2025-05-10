@@ -1,10 +1,11 @@
-;; collateral - Decentralized Lending Protocol
+;; StackLend - Decentralized Lending Protocol
 ;; A simple lending protocol where users can deposit STX and borrow against their collateral
 
 ;; Constants for error codes
 (define-constant ERR-INSUFFICIENT-FUNDS u1)
 (define-constant ERR-UNAUTHORIZED u2)
 (define-constant ERR-NOT-LIQUIDATABLE u3)
+(define-constant ERR-ZERO-AMOUNT u4)
 
 ;; Protocol parameters
 (define-data-var min-collateral-ratio uint u150)
@@ -43,18 +44,25 @@
 (define-public (deposit (amount uint))
   (let ((sender tx-sender)
         (current-deposit (get-deposit sender))
-        (current-amount (get amount current-deposit))
-        (new-amount (+ current-amount amount)))
+        (current-amount (get amount current-deposit)))
     
-    ;; Transfer STX to contract
-    (try! (stx-transfer? amount sender (as-contract tx-sender)))
+    ;; Validate amount
+    (asserts! (> amount u0) (err ERR-ZERO-AMOUNT))
     
-    ;; Update deposit record
-    (map-set deposits 
-      sender 
-      { amount: new-amount, timestamp: (var-get block-counter) })
-    
-    (ok new-amount)
+    ;; Calculate new amount after validation
+    (let ((validated-amount amount)
+          (new-amount (+ current-amount validated-amount)))
+      
+      ;; Transfer STX to contract
+      (try! (stx-transfer? validated-amount sender (as-contract tx-sender)))
+      
+      ;; Update deposit record
+      (map-set deposits 
+        sender 
+        { amount: new-amount, timestamp: (var-get block-counter) })
+      
+      (ok new-amount)
+    )
   )
 )
 
@@ -63,7 +71,8 @@
         (current-deposit (get-deposit sender))
         (current-amount (get amount current-deposit)))
     
-    ;; Check if user has enough funds
+    ;; Check if user has enough funds and amount is valid
+    (asserts! (> amount u0) (err ERR-ZERO-AMOUNT))
     (asserts! (<= amount current-amount) (err ERR-INSUFFICIENT-FUNDS))
     
     ;; Update deposit record
@@ -85,24 +94,29 @@
         (current-loan (get-loan sender))
         (loan-amount (get amount current-loan))
         (collateral-amount (get collateral current-loan))
-        (min-ratio (var-get min-collateral-ratio))
-        (new-loan-amount (+ loan-amount amount))
-        (new-collateral-amount (+ collateral-amount (* amount min-ratio))))
+        (min-ratio (var-get min-collateral-ratio)))
     
-    ;; Check if user has enough deposit
+    ;; Validate amount
+    (asserts! (> amount u0) (err ERR-ZERO-AMOUNT))
     (asserts! (>= deposit-amount amount) (err ERR-INSUFFICIENT-FUNDS))
     
-    ;; Update loan record
-    (map-set loans 
-      sender 
-      { amount: new-loan-amount, 
-        collateral: new-collateral-amount, 
-        timestamp: (var-get block-counter) })
-    
-    ;; Transfer STX to user
-    (as-contract (try! (stx-transfer? amount (as-contract tx-sender) sender)))
-    
-    (ok new-loan-amount)
+    ;; Calculate new amounts after validation
+    (let ((validated-amount amount)
+          (new-loan-amount (+ loan-amount validated-amount))
+          (new-collateral-amount (+ collateral-amount (* validated-amount min-ratio))))
+      
+      ;; Update loan record
+      (map-set loans 
+        sender 
+        { amount: new-loan-amount, 
+          collateral: new-collateral-amount, 
+          timestamp: (var-get block-counter) })
+      
+      ;; Transfer STX to user
+      (as-contract (try! (stx-transfer? validated-amount (as-contract tx-sender) sender)))
+      
+      (ok new-loan-amount)
+    )
   )
 )
 
@@ -111,24 +125,29 @@
         (current-loan (get-loan sender))
         (loan-amount (get amount current-loan))
         (collateral-amount (get collateral current-loan))
-        (min-ratio (var-get min-collateral-ratio))
-        (new-loan-amount (- loan-amount amount))
-        (new-collateral-amount (- collateral-amount (* amount min-ratio))))
+        (min-ratio (var-get min-collateral-ratio)))
     
-    ;; Check if amount is valid
+    ;; Validate amount
+    (asserts! (> amount u0) (err ERR-ZERO-AMOUNT))
     (asserts! (<= amount loan-amount) (err ERR-INSUFFICIENT-FUNDS))
     
-    ;; Transfer STX from user to contract
-    (try! (stx-transfer? amount sender (as-contract tx-sender)))
-    
-    ;; Update loan record
-    (map-set loans 
-      sender 
-      { amount: new-loan-amount, 
-        collateral: new-collateral-amount, 
-        timestamp: (var-get block-counter) })
-    
-    (ok new-loan-amount)
+    ;; Calculate new amounts after validation
+    (let ((validated-amount amount)
+          (new-loan-amount (- loan-amount validated-amount))
+          (new-collateral-amount (- collateral-amount (* validated-amount min-ratio))))
+      
+      ;; Transfer STX from user to contract
+      (try! (stx-transfer? validated-amount sender (as-contract tx-sender)))
+      
+      ;; Update loan record
+      (map-set loans 
+        sender 
+        { amount: new-loan-amount, 
+          collateral: new-collateral-amount, 
+          timestamp: (var-get block-counter) })
+      
+      (ok new-loan-amount)
+    )
   )
 )
 
@@ -140,7 +159,8 @@
         (ratio (get-collateral-ratio user))
         (liq-threshold (var-get liquidation-threshold)))
     
-    ;; Check if position is liquidatable
+    ;; Validate loan exists and is liquidatable
+    (asserts! (> loan-amount u0) (err ERR-INSUFFICIENT-FUNDS))
     (asserts! (< ratio liq-threshold) (err ERR-NOT-LIQUIDATABLE))
     
     ;; Transfer STX from liquidator to contract
