@@ -4,6 +4,15 @@
 (define-data-var min-collateral-ratio uint u150)
 (define-data-var liquidation-threshold uint u130)
 (define-data-var protocol-fee uint u1)
+(define-data-var current-block uint u0)
+
+;; Admin function to update the current block (simulating block height)
+(define-public (update-block (new-block uint))
+  (begin
+    (var-set current-block new-block)
+    (ok new-block)
+  )
+)
 
 (define-map deposits
   { user: principal }
@@ -43,12 +52,13 @@
     (current-deposit (get-deposit sender))
     (current-amount (get amount current-deposit))
     (new-amount (+ current-amount amount))
+    (current-block-height (var-get current-block))
   )
     (begin
       (try! (stx-transfer? amount sender (as-contract tx-sender)))
       (map-set deposits
         { user: sender }
-        { amount: new-amount, last-deposit-block: block-height }
+        { amount: new-amount, last-deposit-block: current-block-height }
       )
       (ok new-amount)
     )
@@ -60,6 +70,7 @@
     (sender tx-sender)
     (current-deposit (get-deposit sender))
     (current-amount (get amount current-deposit))
+    (current-block-height (var-get current-block))
   )
     (asserts! (<= amount current-amount) (err u1))
     (let (
@@ -67,7 +78,7 @@
     )
       (map-set deposits
         { user: sender }
-        { amount: new-amount, last-deposit-block: block-height }
+        { amount: new-amount, last-deposit-block: current-block-height }
       )
       (as-contract (stx-transfer? amount (as-contract tx-sender) sender))
       (ok new-amount)
@@ -84,6 +95,7 @@
     (loan-amount (get amount current-loan))
     (collateral-amount (get collateral current-loan))
     (min-ratio (var-get min-collateral-ratio))
+    (current-block-height (var-get current-block))
   )
     (asserts! (>= deposit-amount amount) (err u1))
     (let (
@@ -95,7 +107,7 @@
         { 
           amount: new-loan-amount, 
           collateral: new-collateral-amount, 
-          last-borrow-block: block-height 
+          last-borrow-block: current-block-height 
         }
       )
       (as-contract (stx-transfer? amount (as-contract tx-sender) sender))
@@ -110,6 +122,7 @@
     (current-loan (get-loan sender))
     (loan-amount (get amount current-loan))
     (collateral-amount (get collateral current-loan))
+    (current-block-height (var-get current-block))
   )
     (asserts! (<= amount loan-amount) (err u1))
     (try! (stx-transfer? amount sender (as-contract tx-sender)))
@@ -122,7 +135,7 @@
         { 
           amount: new-loan-amount, 
           collateral: new-collateral-amount, 
-          last-borrow-block: block-height 
+          last-borrow-block: current-block-height 
         }
       )
       (ok new-loan-amount)
